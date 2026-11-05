@@ -71,10 +71,12 @@ final class Router
 
             $handler($params);
         } catch (ApiException $e) {
+            if (ob_get_level() > 0) { ob_clean(); }
             Response::error($e->errorCode, $e->getMessage(), $e->status, $e->details);
         } catch (\Throwable $e) {
-            error_log($e::class . ': ' . $e->getMessage());
+            if (ob_get_level() > 0) { ob_clean(); }
+            error_log((string) $e);
             Response::error('INTERNAL_ERROR', 'Internal server error', 500);
         }
     }
-}
+} 

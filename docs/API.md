@@ -69,3 +69,22 @@ Xác thực bằng phiên PHP: đăng nhập thành công backend gửi cookie p
 | 409 | `EMAIL_ALREADY_EXISTS` | Email đã được đăng ký |
 | 422 | `VALIDATION_FAILED` | Dữ liệu gửi lên không hợp lệ |
 | 500 | `INTERNAL_ERROR` | Lỗi máy chủ (không lộ chi tiết) |
+## Học và tiến độ (Danh)
+
+Các endpoint dưới đây dùng Auth::user() và cookie Session chung; khách 401, tài khoản locked/deactivated 403. Web `/learning` và `/learning/lesson/{id}` cũng áp dụng quyền này. Cấu trúc chi tiết: [LEARNING.md](LEARNING.md).
+
+GET trang học cung cấp CSRF token theo phiên trong JSON boot. POST học bắt buộc header `X-CSRF-Token`; thiếu/sai trả 403 `CSRF_FAILED`. Chỉ backend được xác nhận hoàn thành; không có endpoint đặt completed, score, HP hay XP từ client.
+
+| Method | Path | Nội dung gửi | Kết quả |
+|---|---|---|---|
+| POST | `/api/v1/learning/lessons/{id}/sessions` | `{}` | Bắt đầu lượt hoặc trả lượt in_progress hiện có |
+| GET | `/api/v1/learning/sessions/{id}` | — | Trạng thái và câu hiện tại của chính người dùng |
+| POST | `/api/v1/learning/sessions/{id}/answers` | `{question_id,request_key,answer}` | `{is_correct,replayed,session}` |
+
+Session có id, lesson_id, status, total_questions, correct_count, answered_main, current_hp, max_hp, next_hp_at (UTC), xp_earned, stats:{xp,streak}, question. Question có id, phase, position, type, content. Khi lượt kết thúc, question=null. Không trả answer_json/snapshot_json hay khóa đáp án.
+
+Answer theo dạng: chọn nghĩa/hình/nghe `{option_id:"a"}`; dịch/điền/nghe nhập `{text:"milk"}`; xếp từ `{token_ids:["t2","t1","t3"]}`; ghép `{pairs:[{left_id:"L1",right_id:"R1"},...]}`. Backend từ chối cấu trúc sai bằng 422, không trừ tim.
+
+request_key là chuỗi ASCII `[A-Za-z0-9:_-]` 16–100 ký tự, tạo một lần cho mỗi lần nộp; retry phải giữ nguyên key, question_id và answer. Retry trả lại is_correct đã lưu, replayed=true, cùng trạng thái lượt hiện tại; không ghi submission, trừ tim, thay điểm hay thưởng lại. Cùng key nhưng thao tác khác: 409 REQUEST_KEY_CONFLICT. Câu đã xử lý gửi bằng key mới, nhảy thứ tự hoặc lượt đã kết thúc: 409 QUESTION_OUT_OF_ORDER.
+
+Lỗi khác: 404 LESSON_NOT_FOUND (gồm nội dung bị ẩn), SESSION_NOT_FOUND (gồm lượt thuộc người khác), QUESTION_NOT_FOUND; 403 LESSON_LOCKED; 409 LESSON_NOT_READY, NO_HEARTS; 422 VALIDATION_FAILED. Lỗi ngoài dự kiến ghi log và trả 500 INTERNAL_ERROR, không hiện file/trace.

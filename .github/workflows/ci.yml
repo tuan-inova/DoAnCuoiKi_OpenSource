@@ -1,9 +1,9 @@
 name: Project checks
 on:
   pull_request:
-    branches: [main]
+    branches: [main, Danh]
   push:
-    branches: [main]
+    branches: [main, 'fix/learning-*']
 permissions:
   contents: read
 jobs:
@@ -25,3 +25,45 @@ jobs:
         run: php --version
       - name: Check tracked PHP syntax
         run: git ls-files -z -- '*.php' | xargs -0 -r -n 1 php -l
+      - run: php tests/unit/learning.php
+      - run: node --check public/assets/js/learning.js
+  learning-integration:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.4
+        env:
+          MYSQL_ROOT_PASSWORD: integration-only
+          MYSQL_DATABASE: doulingo_learning_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pintegration-only"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: doulingo_learning_test
+      DB_USERNAME: root
+      DB_PASSWORD: integration-only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install database client and PHP extensions
+        run: sudo apt-get update && sudo apt-get install -y mariadb-client php-mysql php-mbstring
+      - name: Initialize isolated test database
+        run: |
+          mysql --skip-ssl -h 127.0.0.1 -u root -pintegration-only doulingo_learning_test < database/migrations/001_create_tables.sql
+          mysql --skip-ssl -h 127.0.0.1 -u root -pintegration-only doulingo_learning_test < database/seeds/001_demo_data.sql
+      - run: php tests/integration/learning.php
+      - name: Install browser test runner
+        run: |
+          npm install --prefix /tmp/learning-playwright --no-audit --no-fund playwright@1.62.1
+          /tmp/learning-playwright/node_modules/.bin/playwright install --with-deps chromium
+      - name: Browser and HTTP regression tests
+        run: |
+          php -S 127.0.0.1:8085 -t public > /tmp/learning-http.log 2>&1 &
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:8085/api/v1/health; then break; fi
+            sleep 0.5
+          done
+          TEST_BASE_URL=http://127.0.0.1:8085 NODE_PATH=/tmp/learning-playwright/node_modules node tests/e2e/learning.cjs
